@@ -1,49 +1,41 @@
-void updatePomVersion(String pomVersion) {
-    echo 'Updating POM version...'
-    sh 'sudo cp /home/subomi/Jenkins-Test-File/pom.xml .'
-    sh 'sudo chown jenkins:jenkins pom.xml'
-    def pom = readMavenPom file: 'pom.xml'
-    pom.version = pomVersion
-    writeMavenPom model: pom
-    sh 'cat pom.xml'
-}
-
-void updatePackageJsonVersion(String packageJsonVersion) {
-    echo 'Updating package.json version...'
-    sh 'sudo cp /home/subomi/Jenkins-Test-File/package.json .'
-    sh 'sudo chown jenkins:jenkins package.json'
-    sh "jq --arg newVer '${packageJsonVersion}' '.version = \$newVer' package.json > temp.json"
-    sh 'mv temp.json package.json'
-    sh 'cat package.json'
-}
-
-void updateProjectProperties(String assemblyVersion) {
-    echo 'Updating ProjectProperties.version...'
+void updateVersion(String filePath, String newVersion, String pattern) {
     sh """
-        sed -i.bak \
-        -e 's/<AssemblyVersion>.*<\\/AssemblyVersion>/<AssemblyVersion>${assemblyVersion}<\\/AssemblyVersion>/' \
-        -e 's/<FileVersion>.*<\\/FileVersion>/<FileVersion>${assemblyVersion}<\\/FileVersion>/' \
-        -e 's/<VersionPrefix>.*<\\/VersionPrefix>/<VersionPrefix>${assemblyVersion}<\\/VersionPrefix>/' \
-        ProjectProperties.version
+        sed -i.bak "s/${pattern}.*<\\/${pattern}>${pattern}${newVersion}<\\/${pattern}/g" ${filePath}
+        [ $? -eq 0 ] || exit 1
     """
-    sh 'cat ProjectProperties.version'
 }
 
 pipeline {
     agent any
+    
     environment {
-        POM_VERSION = "2.0.0"
-        PACKAGE_JSON_VERSION = "2.0.0"
-        ASSEMBLY_VERSION = "3.118"
+        VERSION_DIR = credentials('version-dir')
+        VERSIONS = '''
+            POM_VERSION=2.0.0
+            PACKAGE_JSON_VERSION=2.0.0
+            ASSEMBLY_VERSION=3.118
+        '''
     }
+    
     stages {
-        stage('Update All Versions') {
+        stage('Update Versions') {
             steps {
                 script {
-                    updatePomVersion(env.POM_VERSION)
-                    updatePackageJsonVersion(env.PACKAGE_JSON_VERSION)
-                    updateProjectProperties(env.ASSEMBLY_VERSION)
-                    sh 'realpath ProjectProperties.version'
+                    sh '''
+                        set -e
+                        
+                        # POM
+                        cp ${VERSION_DIR}/pom.xml . && \
+                        sed -i "s/<version>.*<\/version>/<version>2.0.0<\/version>/" pom.xml
+                        
+                        # package.json
+                        cp ${VERSION_DIR}/package.json . && \
+                        jq '.version = "2.0.0"' package.json > temp.json && \
+                        mv temp.json package.json
+                        
+                        # ProjectProperties
+                        sed -i "s/<AssemblyVersion>.*<\/AssemblyVersion>/<AssemblyVersion>3.118<\/AssemblyVersion>/" ProjectProperties.version
+                    '''
                 }
             }
         }
